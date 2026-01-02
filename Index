@@ -1,0 +1,883 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Household Food Tracker</title>
+  <meta name="theme-color" content="#111827" />
+  <link rel="manifest" href="manifest.json" />
+  <style>
+    :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    body { margin: 0; background:#0b1220; color:#e5e7eb; }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 16px; }
+    h1 { margin: 6px 0 10px; font-size: 22px; }
+    .sub { color:#9ca3af; font-size: 13px; margin-bottom: 14px; }
+    .tabs { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+    .tab { border:1px solid #243244; background:#111827; color:#e5e7eb; padding:10px 12px; border-radius:14px; cursor:pointer; }
+    .tab.active { background:#1f2937; border-color:#3b4a63; }
+    .grid { display:grid; gap:12px; }
+    @media (min-width: 860px){ .grid.two { grid-template-columns: 1.3fr 1fr; } }
+    .card { background:#0f172a; border:1px solid #243244; border-radius:18px; padding:14px; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+    label { font-size: 12px; color:#9ca3af; display:block; margin-bottom:6px; }
+    input, select, textarea {
+      width:100%; box-sizing:border-box; padding:10px 12px; border-radius:14px;
+      border:1px solid #243244; background:#0b1220; color:#e5e7eb; outline:none;
+    }
+    textarea { min-height: 80px; resize: vertical; }
+    .btn {
+      border:1px solid #243244; background:#111827; color:#e5e7eb; padding:10px 12px;
+      border-radius:14px; cursor:pointer;
+    }
+    .btn.primary { background:#1f2937; border-color:#3b4a63; }
+    .btn.danger { background:#2a1010; border-color:#5b2b2b; }
+    .btn:active { transform: translateY(1px); }
+    .pill { font-size: 12px; padding: 4px 10px; border-radius: 999px; border:1px solid #243244; color:#cbd5e1; }
+    .pill.good { border-color:#1f4f2c; color:#a7f3d0; }
+    .pill.soon { border-color:#5a4a1e; color:#fde68a; }
+    .pill.urgent { border-color:#5b2b2b; color:#fecaca; }
+    .muted { color:#9ca3af; }
+    .list { display:flex; flex-direction:column; gap:10px; margin-top:10px; }
+    .item { border:1px solid #243244; border-radius:16px; padding:12px; background:#0b1220; }
+    .itemTop { display:flex; justify-content:space-between; gap:10px; align-items:flex-start; }
+    .name { font-weight: 650; }
+    .meta { font-size: 12px; color:#9ca3af; margin-top: 4px; }
+    .actions { display:flex; gap:8px; flex-wrap:wrap; margin-top: 10px; }
+    .split { display:flex; gap:10px; flex-wrap:wrap; }
+    .split > * { flex: 1; min-width: 180px; }
+    .hr { height:1px; background:#243244; margin: 12px 0; }
+    .small { font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Household Food Tracker</h1>
+    <div class="sub">Inventory, use-first, shopping, and a shift-based meal planner. Everything saves on your phone.</div>
+
+    <div class="tabs" id="tabs"></div>
+
+    <div id="view"></div>
+
+    <div class="hr"></div>
+    <div class="small muted">
+      Tip: Once hosted on GitHub Pages, add to your home screen for an app-like feel.
+    </div>
+  </div>
+
+<script>
+(function(){
+  const LS_KEY = "clare_household_food_tracker_v1";
+
+  const TABS = [
+    { id:"today", label:"Today" },
+    { id:"inventory", label:"Inventory" },
+    { id:"usefirst", label:"Use first" },
+    { id:"planner", label:"Planner" },
+    { id:"shopping", label:"Shopping" },
+    { id:"backup", label:"Backup" },
+  ];
+
+  const SHIFT_OPTIONS = ["Early","Mid","Late","Off"];
+  const LOCATIONS = ["Fridge","Freezer","Cupboard"];
+  const QTY = ["Plenty","Some","Low"];
+  const PRIORITY = ["Must have","Useful","Optional"];
+
+  const state = load() || seed();
+
+  function seed(){
+    const today = isoToday();
+    return {
+      days: Array.from({length:14}).map((_,i)=>({
+        date: addDays(today,i),
+        shift: i===0 ? "Mid" : "Off",
+        plan: "",
+        notes: ""
+      })),
+      inventory: [
+        { id: uid(), name:"Brown onions", location:"Cupboard", qty:"Some", useBy:"" }
+      ],
+      shopping: [],
+      recipes: [
+        { id: uid(), name:"Chicken & rice (not too spicy)", style:"Rice-based" },
+        { id: uid(), name:"Sausage tray bake", style:"Tray bake" },
+        { id: uid(), name:"Pasta (quick tomato)", style:"Pasta-based" },
+        { id: uid(), name:"Slow cooker stew/curry", style:"Slow cooker" },
+        { id: uid(), name:"Air fryer sausages + wedges", style:"Air fryer" },
+      ]
+    };
+  }
+
+  function uid(){ return Math.random().toString(36).slice(2,10); }
+  function isoToday(){
+    const d = new Date(); d.setHours(0,0,0,0);
+    return d.toISOString().slice(0,10);
+  }
+  function addDays(iso, n){
+    const d = new Date(iso+"T00:00:00");
+    d.setDate(d.getDate()+n);
+    return d.toISOString().slice(0,10);
+  }
+  function dayName(iso){
+    const d = new Date(iso+"T00:00:00");
+    return d.toLocaleDateString(undefined, { weekday:"long" });
+  }
+  function daysUntil(iso){
+    if(!iso) return null;
+    const a = new Date(); a.setHours(0,0,0,0);
+    const b = new Date(iso+"T00:00:00");
+    return Math.round((b-a)/(1000*60*60*24));
+  }
+  function statusFor(useBy){
+    const du = daysUntil(useBy);
+    if(du === null) return { label:"OK", cls:"good" };
+    if(du < 0) return { label:"Expired", cls:"urgent" };
+    if(du <= 2) return { label:"Urgent", cls:"urgent" };
+    if(du <= 5) return { label:"Use soon", cls:"soon" };
+    return { label:"OK", cls:"good" };
+  }
+
+  function save(){ localStorage.setItem(LS_KEY, JSON.stringify(state)); }
+  function load(){
+    try { return JSON.parse(localStorage.getItem(LS_KEY)); } catch { return null; }
+  }
+
+  function setTab(tabId){
+    state.activeTab = tabId;
+    render();
+    save();
+  }
+
+  function el(html){
+    const t = document.createElement("template");
+    t.innerHTML = html.trim();
+    return t.content.firstChild;
+  }
+
+  function renderTabs(){
+    const tabs = document.getElementById("tabs");
+    tabs.innerHTML = "";
+    const active = state.activeTab || "today";
+    TABS.forEach(t=>{
+      const b = el(`<button class="tab ${t.id===active?"active":""}">${t.label}</button>`);
+      b.onclick = ()=>setTab(t.id);
+      tabs.appendChild(b);
+    });
+  }
+
+  function render(){
+    renderTabs();
+    const active = state.activeTab || "today";
+    const view = document.getElementById("view");
+    view.innerHTML = "";
+    if(active==="today") view.appendChild(viewToday());
+    if(active==="inventory") view.appendChild(viewInventory());
+    if(active==="usefirst") view.appendChild(viewUseFirst());
+    if(active==="planner") view.appendChild(viewPlanner());
+    if(active==="shopping") view.appendChild(viewShopping());
+    if(active==="backup") view.appendChild(viewBackup());
+  }
+
+  // TODAY
+  function viewToday(){
+    const today = isoToday();
+    const day = state.days.find(d=>d.date===today) || state.days[0];
+
+    const urgent = getUseFirst().slice(0,6);
+
+    const root = el(`<div class="grid two"></div>`);
+    const left = el(`<div class="card"></div>`);
+    const right = el(`<div class="card"></div>`);
+
+    left.appendChild(el(`
+      <div>
+        <div class="name">${dayName(day.date)} (${day.date})</div>
+        <div class="meta">Set your shift and plan something that fits.</div>
+      </div>
+    `));
+
+    const shiftSel = select("Shift", SHIFT_OPTIONS, day.shift);
+    shiftSel.onchange = (e)=>{ day.shift = e.target.value; save(); render(); };
+
+    const planSel = select("Planned meal", ["","(suggest one)"].concat(state.recipes.map(r=>r.name)), day.plan);
+    planSel.onchange = (e)=>{
+      if(e.target.value==="(suggest one)") {
+        day.plan = suggestMeal(day.shift);
+      } else {
+        day.plan = e.target.value;
+      }
+      save(); render();
+    };
+
+    const notes = el(`
+      <div>
+        <label>Notes</label>
+        <textarea placeholder="Anything to remember for tonight"></textarea>
+      </div>
+    `);
+    notes.querySelector("textarea").value = day.notes || "";
+    notes.querySelector("textarea").oninput = (e)=>{ day.notes = e.target.value; save(); };
+
+    const btnRow = el(`<div class="row"></div>`);
+    const suggest = el(`<button class="btn primary">Suggest a meal</button>`);
+    suggest.onclick = ()=>{ day.plan = suggestMeal(day.shift); save(); render(); };
+
+    const toShop = el(`<button class="btn">Go to shopping</button>`);
+    toShop.onclick = ()=>setTab("shopping");
+
+    btnRow.appendChild(suggest);
+    btnRow.appendChild(toShop);
+
+    left.appendChild(el(`<div class="grid"></div>`));
+    left.lastChild.appendChild(shiftSel);
+    left.lastChild.appendChild(planSel);
+    left.lastChild.appendChild(btnRow);
+    left.lastChild.appendChild(notes);
+
+    right.appendChild(el(`<div class="name">Use first</div><div class="meta">Stuff that needs attention soon.</div>`));
+
+    if(urgent.length===0){
+      right.appendChild(el(`<div class="muted small">Nothing urgent right now.</div>`));
+    } else {
+      const list = el(`<div class="list"></div>`);
+      urgent.forEach(it=>{
+        const st = statusFor(it.useBy);
+        const card = el(`
+          <div class="item">
+            <div class="itemTop">
+              <div>
+                <div class="name">${escapeHtml(it.name)}</div>
+                <div class="meta">${it.location} • ${it.qty}${it.useBy ? " • "+it.useBy : ""}</div>
+              </div>
+              <span class="pill ${st.cls}">${st.label}</span>
+            </div>
+            <div class="actions">
+              <button class="btn">Add to shopping</button>
+              <button class="btn danger">Used up</button>
+            </div>
+          </div>
+        `);
+        card.querySelector(".btn").onclick = ()=>{
+          state.shopping.unshift({ id:uid(), item: it.name, priority:"Useful", note:"Top-up", bought:false });
+          save(); render();
+        };
+        card.querySelector(".btn.danger").onclick = ()=>{
+          state.inventory = state.inventory.filter(x=>x.id!==it.id);
+          save(); render();
+        };
+        list.appendChild(card);
+      });
+      right.appendChild(list);
+    }
+
+    root.appendChild(left);
+    root.appendChild(right);
+    return root;
+  }
+
+  function suggestMeal(shift){
+    const preferredStyles = ["Rice-based","Pasta-based","Tray bake","Slow cooker","Air fryer"];
+    // Simple, predictable scoring
+    const scored = state.recipes.map(r=>{
+      let s = 0;
+      if(preferredStyles.includes(r.style)) s += 2;
+      if(shift==="Late"){
+        if(r.style==="Air fryer" || r.style==="Tray bake") s += 3;
+        if(r.style==="Rice-based" || r.style==="Pasta-based") s += 1;
+      }
+      if(shift==="Mid" || shift==="Early"){
+        if(r.style==="Rice-based" || r.style==="Pasta-based") s += 3;
+        if(r.style==="Tray bake") s += 2;
+      }
+      if(shift==="Off"){
+        if(r.style==="Slow cooker") s += 4;
+        if(r.style==="Tray bake") s += 2;
+      }
+      s += Math.random()*0.25;
+      return { r, s };
+    }).sort((a,b)=>b.s-a.s);
+    return scored[0]?.r?.name || "";
+  }
+
+  // INVENTORY
+  function viewInventory(){
+    const root = el(`<div class="grid two"></div>`);
+    const left = el(`<div class="card"></div>`);
+    const right = el(`<div class="card"></div>`);
+
+    left.appendChild(el(`<div class="name">Inventory</div><div class="meta">Keep it rough. Counts and dates are optional.</div>`));
+
+    const filterRow = el(`<div class="row"></div>`);
+    const locSel = selectInline("Location", ["All"].concat(LOCATIONS), state.invFilter || "All");
+    locSel.onchange = (e)=>{ state.invFilter = e.target.value; save(); render(); };
+
+    const q = el(`<div style="flex:1;min-width:220px"><label>Search</label><input placeholder="e.g. onions, chicken"></div>`);
+    q.querySelector("input").value = state.invQuery || "";
+    q.querySelector("input").oninput = (e)=>{ state.invQuery = e.target.value; save(); render(); };
+
+    filterRow.appendChild(locSel);
+    filterRow.appendChild(q);
+    left.appendChild(filterRow);
+
+    const list = el(`<div class="list"></div>`);
+    const rows = state.inventory
+      .filter(it => (state.invFilter && state.invFilter!=="All") ? it.location===state.invFilter : true)
+      .filter(it => (state.invQuery||"").trim() ? it.name.toLowerCase().includes(state.invQuery.trim().toLowerCase()) : true)
+      .sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+
+    if(rows.length===0){
+      list.appendChild(el(`<div class="muted small">No items yet.</div>`));
+    } else {
+      rows.forEach(it=>{
+        const st = statusFor(it.useBy);
+        const card = el(`
+          <div class="item">
+            <div class="itemTop">
+              <div>
+                <div class="name">${escapeHtml(it.name)}</div>
+                <div class="meta">${it.location} • ${it.qty}${it.useBy ? " • use-by "+it.useBy : ""}</div>
+              </div>
+              <span class="pill ${st.cls}">${st.label}</span>
+            </div>
+            <div class="actions">
+              <button class="btn">Add to shopping</button>
+              <button class="btn">Edit</button>
+              <button class="btn danger">Used up</button>
+            </div>
+          </div>
+        `);
+
+        card.querySelectorAll(".btn")[0].onclick = ()=>{
+          state.shopping.unshift({ id:uid(), item: it.name, priority:"Useful", note:"Top-up", bought:false });
+          save(); render();
+        };
+
+        card.querySelectorAll(".btn")[1].onclick = ()=>{
+          openEditInventory(it);
+        };
+
+        card.querySelector(".btn.danger").onclick = ()=>{
+          state.inventory = state.inventory.filter(x=>x.id!==it.id);
+          save(); render();
+        };
+
+        list.appendChild(card);
+      });
+    }
+
+    left.appendChild(list);
+
+    // ADD FORM
+    right.appendChild(el(`<div class="name">Add item</div><div class="meta">Optional use-by helps the use-first list.</div>`));
+
+    const form = el(`
+      <div class="grid">
+        <div>
+          <label>Item</label>
+          <input placeholder="e.g. broccoli">
+        </div>
+
+        <div class="split">
+          <div>
+            <label>Location</label>
+            <select></select>
+          </div>
+          <div>
+            <label>Quantity</label>
+            <select></select>
+          </div>
+        </div>
+
+        <div>
+          <label>Use-by (optional)</label>
+          <input type="date">
+        </div>
+
+        <button class="btn primary">Add to inventory</button>
+      </div>
+    `);
+
+    const itemInput = form.querySelector("input");
+    const loc = form.querySelectorAll("select")[0];
+    const qty = form.querySelectorAll("select")[1];
+    const date = form.querySelector('input[type="date"]');
+
+    LOCATIONS.forEach(x=>loc.appendChild(el(`<option value="${x}">${x}</option>`)));
+    QTY.forEach(x=>qty.appendChild(el(`<option value="${x}">${x}</option>`)));
+    loc.value = "Fridge";
+    qty.value = "Some";
+
+    form.querySelector("button").onclick = ()=>{
+      const name = itemInput.value.trim();
+      if(!name) return;
+      state.inventory.unshift({ id:uid(), name, location: loc.value, qty: qty.value, useBy: date.value || "" });
+      itemInput.value = "";
+      date.value = "";
+      save(); render();
+    };
+
+    right.appendChild(form);
+
+    root.appendChild(left);
+    root.appendChild(right);
+    return root;
+  }
+
+  function openEditInventory(it){
+    const view = document.getElementById("view");
+    const overlay = el(`
+      <div style="position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:14px;z-index:9999;">
+        <div class="card" style="width:min(560px,100%);">
+          <div class="name">Edit item</div>
+          <div class="meta">Change anything, then save.</div>
+          <div class="hr"></div>
+
+          <div class="grid">
+            <div>
+              <label>Name</label>
+              <input>
+            </div>
+
+            <div class="split">
+              <div>
+                <label>Location</label>
+                <select></select>
+              </div>
+              <div>
+                <label>Quantity</label>
+                <select></select>
+              </div>
+            </div>
+
+            <div>
+              <label>Use-by</label>
+              <input type="date">
+            </div>
+
+            <div class="row">
+              <button class="btn primary">Save</button>
+              <button class="btn">Cancel</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `);
+
+    const name = overlay.querySelectorAll("input")[0];
+    const loc = overlay.querySelectorAll("select")[0];
+    const qty = overlay.querySelectorAll("select")[1];
+    const useBy = overlay.querySelector('input[type="date"]');
+
+    name.value = it.name;
+    LOCATIONS.forEach(x=>loc.appendChild(el(`<option value="${x}">${x}</option>`)));
+    QTY.forEach(x=>qty.appendChild(el(`<option value="${x}">${x}</option>`)));
+    loc.value = it.location;
+    qty.value = it.qty;
+    useBy.value = it.useBy || "";
+
+    overlay.querySelector(".btn.primary").onclick = ()=>{
+      it.name = name.value.trim() || it.name;
+      it.location = loc.value;
+      it.qty = qty.value;
+      it.useBy = useBy.value || "";
+      save(); render();
+      overlay.remove();
+    };
+    overlay.querySelectorAll(".btn")[1].onclick = ()=>overlay.remove();
+
+    document.body.appendChild(overlay);
+  }
+
+  // USE FIRST
+  function getUseFirst(){
+    return state.inventory
+      .map(it => ({...it, du: daysUntil(it.useBy), st: statusFor(it.useBy)}))
+      .filter(it => it.st.label !== "OK")
+      .sort((a,b)=>(a.du??999)-(b.du??999));
+  }
+
+  function viewUseFirst(){
+    const root = el(`<div class="card"></div>`);
+    root.appendChild(el(`<div class="name">Use first</div><div class="meta">Sorted by urgency so you can waste less.</div>`));
+
+    const list = el(`<div class="list"></div>`);
+    const rows = getUseFirst();
+
+    if(rows.length===0){
+      list.appendChild(el(`<div class="muted small">Nothing urgent logged. Add use-by dates in Inventory to power this.</div>`));
+    } else {
+      rows.forEach(it=>{
+        const card = el(`
+          <div class="item">
+            <div class="itemTop">
+              <div>
+                <div class="name">${escapeHtml(it.name)}</div>
+                <div class="meta">${it.location} • ${it.qty}${it.useBy ? " • use-by "+it.useBy : ""}</div>
+              </div>
+              <span class="pill ${it.st.cls}">${it.st.label}</span>
+            </div>
+            <div class="actions">
+              <button class="btn primary">Add to shopping</button>
+              <button class="btn danger">Used up</button>
+            </div>
+          </div>
+        `);
+        card.querySelector(".btn.primary").onclick = ()=>{
+          state.shopping.unshift({ id:uid(), item: it.name, priority:"Useful", note:"Use-first top-up", bought:false });
+          save(); render();
+        };
+        card.querySelector(".btn.danger").onclick = ()=>{
+          state.inventory = state.inventory.filter(x=>x.id!==it.id);
+          save(); render();
+        };
+        list.appendChild(card);
+      });
+    }
+
+    root.appendChild(list);
+    return root;
+  }
+
+  // PLANNER
+  function viewPlanner(){
+    const root = el(`<div class="card"></div>`);
+    root.appendChild(el(`<div class="name">Planner</div><div class="meta">Early/Mid/Late/Off with simple suggestions.</div>`));
+
+    const actions = el(`<div class="row" style="margin-top:10px;"></div>`);
+    const addWeek = el(`<button class="btn">Add 7 more days</button>`);
+    addWeek.onclick = ()=>{
+      const last = state.days[state.days.length-1]?.date || isoToday();
+      const start = addDays(last,1);
+      for(let i=0;i<7;i++){
+        state.days.push({ date:addDays(start,i), shift:"Mid", plan:"", notes:"" });
+      }
+      save(); render();
+    };
+
+    const suggestBlanks = el(`<button class="btn primary">Suggest for blank days</button>`);
+    suggestBlanks.onclick = ()=>{
+      state.days.forEach(d=>{
+        if(!d.plan) d.plan = suggestMeal(d.shift);
+      });
+      save(); render();
+    };
+
+    actions.appendChild(addWeek);
+    actions.appendChild(suggestBlanks);
+    root.appendChild(actions);
+
+    const list = el(`<div class="list"></div>`);
+    state.days.slice(0,21).forEach(d=>{
+      const card = el(`
+        <div class="item">
+          <div class="itemTop">
+            <div>
+              <div class="name">${dayName(d.date)} <span class="muted">(${d.date})</span></div>
+              <div class="meta">Shift: ${d.shift}${d.plan ? " • Plan: "+escapeHtml(d.plan) : ""}</div>
+            </div>
+          </div>
+
+          <div class="grid" style="margin-top:10px;">
+            <div class="split">
+              <div>
+                <label>Shift</label>
+                <select></select>
+              </div>
+              <div>
+                <label>Plan</label>
+                <input placeholder="Type a meal or pick suggestion">
+              </div>
+            </div>
+            <div class="row">
+              <button class="btn">Suggest</button>
+              <button class="btn danger">Clear</button>
+            </div>
+          </div>
+        </div>
+      `);
+
+      const sel = card.querySelector("select");
+      SHIFT_OPTIONS.forEach(x=>sel.appendChild(el(`<option value="${x}">${x}</option>`)));
+      sel.value = d.shift;
+      sel.onchange = (e)=>{ d.shift = e.target.value; save(); };
+
+      const plan = card.querySelector("input");
+      plan.value = d.plan || "";
+      plan.oninput = (e)=>{ d.plan = e.target.value; save(); };
+
+      card.querySelectorAll(".btn")[0].onclick = ()=>{ d.plan = suggestMeal(d.shift); save(); render(); };
+      card.querySelector(".btn.danger").onclick = ()=>{ d.plan=""; d.notes=""; save(); render(); };
+
+      list.appendChild(card);
+    });
+
+    root.appendChild(list);
+    root.appendChild(el(`<div class="muted small" style="margin-top:10px;">Showing next 21 days. Use “Add 7 more days” for longer.</div>`));
+    return root;
+  }
+
+  // SHOPPING
+  function viewShopping(){
+    const root = el(`<div class="grid two"></div>`);
+    const left = el(`<div class="card"></div>`);
+    const right = el(`<div class="card"></div>`);
+
+    left.appendChild(el(`<div class="name">Shopping</div><div class="meta">Tick as you shop. Clear bought when done.</div>`));
+
+    const controls = el(`<div class="row" style="margin-top:10px;"></div>`);
+    const clearBought = el(`<button class="btn">Clear bought</button>`);
+    clearBought.onclick = ()=>{
+      state.shopping = state.shopping.filter(x=>!x.bought);
+      save(); render();
+    };
+
+    const genFromPlanner = el(`<button class="btn primary">Generate from plans</button>`);
+    genFromPlanner.onclick = ()=>{
+      // Simple generator: looks for keywords from plans and adds generic staples
+      const plannedText = state.days.slice(0,14).map(d=>d.plan||"").join(" ").toLowerCase();
+      const maybeAdd = (item, note="From plans")=>{
+        if(!item) return;
+        const exists = state.shopping.some(x=>x.item.toLowerCase()===item.toLowerCase());
+        if(!exists) state.shopping.unshift({ id:uid(), item, priority:"Useful", note, bought:false });
+      };
+
+      if(plannedText.includes("rice")) maybeAdd("Basmati rice");
+      if(plannedText.includes("pasta")) maybeAdd("Pasta");
+      if(plannedText.includes("tray")) maybeAdd("Potatoes");
+      if(plannedText.includes("slow")) maybeAdd("Stock cubes");
+      // Always helpful top-ups
+      maybeAdd("Brown onions", "Always useful");
+
+      save(); render();
+    };
+
+    controls.appendChild(genFromPlanner);
+    controls.appendChild(clearBought);
+    left.appendChild(controls);
+
+    const grouped = new Map();
+    state.shopping.forEach(x=>{
+      const k = x.priority || "Useful";
+      if(!grouped.has(k)) grouped.set(k, []);
+      grouped.get(k).push(x);
+    });
+
+    const list = el(`<div class="list"></div>`);
+    PRIORITY.forEach(p=>{
+      const arr = grouped.get(p) || [];
+      if(arr.length===0) return;
+      const block = el(`<div class="item"></div>`);
+      block.appendChild(el(`<div class="itemTop"><div class="name">${p}</div><span class="pill">${arr.length}</span></div>`));
+      const inner = el(`<div class="list" style="margin-top:10px;"></div>`);
+      arr.sort((a,b)=>(a.bought===b.bought? (a.item||"").localeCompare(b.item||"") : (a.bought?1:-1)));
+      arr.forEach(x=>{
+        const row = el(`
+          <div class="item">
+            <div class="itemTop">
+              <div>
+                <div class="name">${x.bought ? "✔ " : ""}${escapeHtml(x.item)}</div>
+                ${x.note ? `<div class="meta">${escapeHtml(x.note)}</div>` : `<div class="meta">&nbsp;</div>`}
+              </div>
+              <button class="btn danger">Remove</button>
+            </div>
+            <div class="actions">
+              <button class="btn">${x.bought ? "Un-tick" : "Tick bought"}</button>
+              <button class="btn">Edit</button>
+            </div>
+          </div>
+        `);
+
+        row.querySelector(".btn.danger").onclick = ()=>{
+          state.shopping = state.shopping.filter(s=>s.id!==x.id);
+          save(); render();
+        };
+
+        row.querySelectorAll(".btn")[0].onclick = ()=>{
+          x.bought = !x.bought;
+          save(); render();
+        };
+
+        row.querySelectorAll(".btn")[1].onclick = ()=>{
+          openEditShopping(x);
+        };
+
+        inner.appendChild(row);
+      });
+      block.appendChild(inner);
+      list.appendChild(block);
+    });
+
+    if(state.shopping.length===0){
+      list.appendChild(el(`<div class="muted small">Shopping list empty.</div>`));
+    }
+
+    left.appendChild(list);
+
+    // Add item form
+    right.appendChild(el(`<div class="name">Add item</div><div class="meta">Quick manual add.</div>`));
+    const form = el(`
+      <div class="grid">
+        <div>
+          <label>Item</label>
+          <input placeholder="e.g. carrots">
+        </div>
+        <div class="split">
+          <div>
+            <label>Priority</label>
+            <select></select>
+          </div>
+          <div>
+            <label>Note</label>
+            <input placeholder="optional">
+          </div>
+        </div>
+        <button class="btn primary">Add to shopping</button>
+      </div>
+    `);
+
+    const item = form.querySelectorAll("input")[0];
+    const note = form.querySelectorAll("input")[1];
+    const pr = form.querySelector("select");
+    PRIORITY.forEach(x=>pr.appendChild(el(`<option value="${x}">${x}</option>`)));
+    pr.value = "Must have";
+
+    form.querySelector("button").onclick = ()=>{
+      const val = item.value.trim();
+      if(!val) return;
+      state.shopping.unshift({ id:uid(), item: val, priority: pr.value, note: note.value.trim(), bought:false });
+      item.value=""; note.value="";
+      save(); render();
+    };
+
+    right.appendChild(form);
+
+    root.appendChild(left);
+    root.appendChild(right);
+    return root;
+  }
+
+  function openEditShopping(x){
+    const overlay = el(`
+      <div style="position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:14px;z-index:9999;">
+        <div class="card" style="width:min(560px,100%);">
+          <div class="name">Edit shopping item</div>
+          <div class="meta">Change anything, then save.</div>
+          <div class="hr"></div>
+
+          <div class="grid">
+            <div>
+              <label>Item</label>
+              <input>
+            </div>
+            <div class="split">
+              <div>
+                <label>Priority</label>
+                <select></select>
+              </div>
+              <div>
+                <label>Note</label>
+                <input>
+              </div>
+            </div>
+
+            <div class="row">
+              <button class="btn primary">Save</button>
+              <button class="btn">Cancel</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `);
+
+    const item = overlay.querySelectorAll("input")[0];
+    const note = overlay.querySelectorAll("input")[1];
+    const pr = overlay.querySelector("select");
+
+    PRIORITY.forEach(v=>pr.appendChild(el(`<option value="${v}">${v}</option>`)));
+    item.value = x.item || "";
+    note.value = x.note || "";
+    pr.value = x.priority || "Useful";
+
+    overlay.querySelector(".btn.primary").onclick = ()=>{
+      x.item = item.value.trim() || x.item;
+      x.note = note.value.trim();
+      x.priority = pr.value;
+      save(); render();
+      overlay.remove();
+    };
+    overlay.querySelectorAll(".btn")[1].onclick = ()=>overlay.remove();
+
+    document.body.appendChild(overlay);
+  }
+
+  // BACKUP
+  function viewBackup(){
+    const root = el(`<div class="card"></div>`);
+    root.appendChild(el(`<div class="name">Backup</div><div class="meta">Export your data as text. Import it later if needed.</div>`));
+
+    const box = el(`
+      <div class="grid" style="margin-top:10px;">
+        <button class="btn primary">Export data</button>
+        <textarea readonly></textarea>
+        <button class="btn">Import data</button>
+        <div class="muted small">Export gives you a blob of text. Copy it somewhere safe. Import replaces your current data.</div>
+      </div>
+    `);
+
+    const out = box.querySelector("textarea");
+    box.querySelectorAll("button")[0].onclick = ()=>{
+      out.value = JSON.stringify(state, null, 2);
+      out.focus(); out.select();
+    };
+    box.querySelectorAll("button")[1].onclick = ()=>{
+      const text = prompt("Paste exported JSON here. This will replace your current data.");
+      if(!text) return;
+      try{
+        const parsed = JSON.parse(text);
+        Object.keys(state).forEach(k=>delete state[k]);
+        Object.assign(state, parsed);
+        save(); render();
+        alert("Imported.");
+      } catch(e){
+        alert("Could not import. The text did not look like valid JSON.");
+      }
+    };
+
+    root.appendChild(box);
+    return root;
+  }
+
+  // UI helpers
+  function select(labelText, options, value){
+    const wrap = el(`<div><label>${labelText}</label><select></select></div>`);
+    const s = wrap.querySelector("select");
+    options.forEach(o=>s.appendChild(el(`<option value="${escapeAttr(o)}">${escapeHtml(o)}</option>`)));
+    s.value = value || "";
+    return wrap;
+  }
+
+  function selectInline(labelText, options, value){
+    const wrap = el(`<div style="min-width:180px"><label>${labelText}</label><select></select></div>`);
+    const s = wrap.querySelector("select");
+    options.forEach(o=>s.appendChild(el(`<option value="${escapeAttr(o)}">${escapeHtml(o)}</option>`)));
+    s.value = value || "";
+    return wrap;
+  }
+
+  function escapeHtml(str){
+    return String(str).replace(/[&<>"']/g, s=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[s]));
+  }
+  function escapeAttr(str){ return escapeHtml(str); }
+
+  // First run
+  if(!state.activeTab) state.activeTab = "today";
+  save();
+  render();
+
+  // Register service worker (for offline-ish feel when hosted)
+  if("serviceWorker" in navigator){
+    navigator.serviceWorker.register("./sw.js").catch(()=>{});
+  }
+})();
+</script>
+</body>
+</html>
